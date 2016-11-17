@@ -20,20 +20,22 @@ class MainWindow(QtGui.QMainWindow):
 
         self.setUpMenuBar()
         
+        # Radio buttons for reduced time
         ReducedVelocity6 = QtGui.QRadioButton("t-x/6")
         ReducedVelocity8 = QtGui.QRadioButton("t-x/8")
         ReducedVelocityNone = QtGui.QRadioButton("t")
         ReducedVelocityNone.setChecked(True)
-#        self.connect(ReducedVelocity6, QtCore.SIGNAL(''))
+        
+        # enclose all the radio button to make them exclusively
+        # i.e., only one radio button can be checked at one time
         self.ReducedTimeButtonGroup = QtGui.QButtonGroup()
         self.ReducedTimeButtonGroup.addButton(ReducedVelocity6)
         self.ReducedTimeButtonGroup.addButton(ReducedVelocity8)
         self.ReducedTimeButtonGroup.addButton(ReducedVelocityNone)
         self.connect(self.ReducedTimeButtonGroup, QtCore.SIGNAL('buttonClicked(QAbstractButton*)'),
                      self.rtPlot)
-                                                         
-        
-        # clear picks
+                                                       
+        # button for clear picks
         self.ClearButton = QtGui.QPushButton("Clear", self)
         self.ClearButton.setGeometry(10, 10, 64, 35)
         self.connect(self.ClearButton, QtCore.SIGNAL('clicked()'),
@@ -60,8 +62,6 @@ class MainWindow(QtGui.QMainWindow):
            
         hbox = QtGui.QHBoxLayout()
         hbox.addStretch(1)
-#        print type(self.ReducedTimeButtonGroup)
-#        hbox.addStrut(self.ReducedTimeButtonGroup)
         hbox.addWidget(GroupBoxRT, stretch=10, alignment=QtCore.Qt.AlignCenter)
         hbox.addWidget(self.ClearButton)
         
@@ -84,8 +84,6 @@ class MainWindow(QtGui.QMainWindow):
                 QtCore.Qt.CTRL + QtCore.Qt.Key_Q)
         self.file_menu.addAction('&Load from Folder', self.loadFromFolder,
                 QtCore.Qt.CTRL + QtCore.Qt.Key_L)
-#        self.file_menu.addAction('&Plot Profile', self.plotProfile,
-#                QtCore.Qt.CTRL + QtCore.Qt.Key_P)
 
         # 'Help' menu
         self.help_menu = QtGui.QMenu('&Help', self)
@@ -106,6 +104,7 @@ class MainWindow(QtGui.QMainWindow):
     
     def updatePicks(self):
         if self.picks is None:
+            # no picks, erase pick markers
             try:
                 self.pickmarkers.set_xdata([])
                 self.pickmarkers.set_ydata([])
@@ -114,6 +113,7 @@ class MainWindow(QtGui.QMainWindow):
                 pass
             self.pickmarkers = None
         else:
+            # otherwise, replot picks
             picks = np.array(self.picks)
             if self.pickmarkers is None:
                 self.pickmarkers, = self.canvas.axes.plot(picks[:,0], picks[:,1], 'r+',
@@ -128,7 +128,11 @@ class MainWindow(QtGui.QMainWindow):
         self.updatePicks()
         
     def rtPlot(self):
-
+        """Plot profile with reduced time
+        """
+        #TODO(xuyihe): take similar parts of rtPlot and loadFromFolder to a
+        # individual method, to update profile
+        # set reduced velocity from radio button checked
         id = self.ReducedTimeButtonGroup.checkedId()
         if id == -2:
             reducedV = 6.0
@@ -139,8 +143,7 @@ class MainWindow(QtGui.QMainWindow):
         else:
             reducedV = np.inf
         
-#        print id
-            
+        # clear the axes and plot, with x_offset, y_offset and scale
         self.canvas.axes.cla()
         for tr in self.st:
             scale = 1.0/np.max(tr.data)
@@ -161,18 +164,17 @@ class MainWindow(QtGui.QMainWindow):
         self.fileQuit()
 
     def loadFromFolder(self):
+        # clear the axes for new plot
         self.canvas.axes.cla()
         
+        # read all sac files in a folder
         folder_name = QtGui.QFileDialog.getExistingDirectory(self, 'Select a Folder',
-                                                     '../demo_data')
+                                                             '../demo_data')
         if folder_name is None:
             return
-#        print folder_name
-#        print type(folder_name)
         self.st = read(os.path.join(folder_name, '*.BHZ*.sac'))
-#        t = st[0].times()
-#        print 'load complete'
         
+        # plot it with offset, scale
         for tr in self.st:
             scale = 1.0/np.max(tr.data)
             offset = tr.stats.sac['dist']
@@ -183,8 +185,6 @@ class MainWindow(QtGui.QMainWindow):
         self.canvas.axes.set_ylabel('Time (s)')
         self.canvas.draw()
 
-#    def plotProfile(self):
-#        pass
 
     def about(self):
         QtGui.QMessageBox.about(self, "About",
@@ -195,12 +195,6 @@ Laboratory of Seismic Observation and Geophysical Imaging
 The very first version of arrival time picker for active sources profile."""
                 )
 
-# temp class for Trace
-class Trace(object):
-    def __init__(self, length=90):
-        self.time = np.linspace(0,90,90*10+1)
-        self.data = np.random.rand(90*10+1)
-        self.distance = np.random.rand(1)[0]*150
 
 # class for embedding matplotlib figure into PyQt4
 class ProfileCanvas(FigureCanvas):
@@ -208,8 +202,7 @@ class ProfileCanvas(FigureCanvas):
         # preparation for plotting
         fig = Figure(figsize=(width, height), dpi=dpi)
         self.axes = fig.add_subplot(111)
-
-        self.__plotSamples()
+        self.axes.axis('off')
         
         # embed to the pyqt4 widget 'FigureCanvas'
         FigureCanvas.__init__(self, fig)
@@ -220,28 +213,6 @@ class ProfileCanvas(FigureCanvas):
                 QtGui.QSizePolicy.Expanding,
                 QtGui.QSizePolicy.Expanding)
         FigureCanvas.updateGeometry(self)
-  
-
-        
-
-    def __plotSamples(self):
-        # create some data
-        self.data = [Trace() for i in range(50)]
-
-        # plot
-#        try:
-        for trace in self.data:
-            self.axes.plot(trace.data + trace.distance,
-                    trace.time,'k')
-#            self.draw()
-        self.axes.set_xlim(-1,151)
-        self.axes.set_ylim(0,90)
-        self.axes.set_xlabel('Distance (km)')
-        self.axes.set_ylabel('Time (s)')
-#        self.axes.tight_layout()
-#        except AttributeError:
-#            print "No data"
-            
 
 
 app = QtGui.QApplication(sys.argv)
