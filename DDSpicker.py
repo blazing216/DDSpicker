@@ -20,6 +20,19 @@ class MainWindow(QtGui.QMainWindow):
 
         self.setUpMenuBar()
         
+        ReducedVelocity6 = QtGui.QRadioButton("t-x/6")
+        ReducedVelocity8 = QtGui.QRadioButton("t-x/8")
+        ReducedVelocityNone = QtGui.QRadioButton("t")
+        ReducedVelocityNone.setChecked(True)
+#        self.connect(ReducedVelocity6, QtCore.SIGNAL(''))
+        self.ReducedTimeButtonGroup = QtGui.QButtonGroup()
+        self.ReducedTimeButtonGroup.addButton(ReducedVelocity6)
+        self.ReducedTimeButtonGroup.addButton(ReducedVelocity8)
+        self.ReducedTimeButtonGroup.addButton(ReducedVelocityNone)
+        self.connect(self.ReducedTimeButtonGroup, QtCore.SIGNAL('buttonClicked(QAbstractButton*)'),
+                     self.rtPlot)
+                                                         
+        
         # clear picks
         self.ClearButton = QtGui.QPushButton("Clear", self)
         self.ClearButton.setGeometry(10, 10, 64, 35)
@@ -37,8 +50,19 @@ class MainWindow(QtGui.QMainWindow):
 
            
         # set layouts
+        vboxRT = QtGui.QVBoxLayout()
+        vboxRT.addWidget(ReducedVelocity6)
+        vboxRT.addWidget(ReducedVelocity8)
+        vboxRT.addWidget(ReducedVelocityNone) 
+        vboxRT.addStretch(1)
+        GroupBoxRT = QtGui.QGroupBox("Reduced time")
+        GroupBoxRT.setLayout(vboxRT)          
+           
         hbox = QtGui.QHBoxLayout()
-        hbox.addStretch()
+        hbox.addStretch(1)
+#        print type(self.ReducedTimeButtonGroup)
+#        hbox.addStrut(self.ReducedTimeButtonGroup)
+        hbox.addWidget(GroupBoxRT, stretch=10, alignment=QtCore.Qt.AlignCenter)
         hbox.addWidget(self.ClearButton)
         
         vbox = QtGui.QVBoxLayout(self.main_widget)
@@ -102,6 +126,33 @@ class MainWindow(QtGui.QMainWindow):
     def clearPicks(self):
         self.picks = None
         self.updatePicks()
+        
+    def rtPlot(self):
+
+        id = self.ReducedTimeButtonGroup.checkedId()
+        if id == -2:
+            reducedV = 6.0
+        elif id == -3:
+            reducedV = 8.0
+        elif id == -4:
+            reducedV = np.inf
+        else:
+            reducedV = np.inf
+        
+#        print id
+            
+        self.canvas.axes.cla()
+        for tr in self.st:
+            scale = 1.0/np.max(tr.data)
+            x_offset = tr.stats.sac['dist']
+            y_offset = -x_offset/reducedV
+            self.canvas.axes.plot(tr.data * scale + x_offset, 
+                                  tr.times() + y_offset , 'k')
+        self.canvas.axes.set_xlim(-1,151)
+        self.canvas.axes.set_ylim(0,90)
+        self.canvas.axes.set_xlabel('Distance (km)')
+        self.canvas.axes.set_ylabel('Time (s)')
+        self.canvas.draw()
 
     def fileQuit(self):
         self.close()
@@ -116,13 +167,13 @@ class MainWindow(QtGui.QMainWindow):
                                                      '../demo_data')
         if folder_name is None:
             return
-        print folder_name
-        print type(folder_name)
-        st = read(os.path.join(folder_name, '*.BHZ*.sac'))
+#        print folder_name
+#        print type(folder_name)
+        self.st = read(os.path.join(folder_name, '*.BHZ*.sac'))
 #        t = st[0].times()
-        print 'load complete'
+#        print 'load complete'
         
-        for tr in st:
+        for tr in self.st:
             scale = 1.0/np.max(tr.data)
             offset = tr.stats.sac['dist']
             self.canvas.axes.plot(tr.data * scale + offset, tr.times() , 'k')
