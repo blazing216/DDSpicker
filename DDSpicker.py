@@ -18,28 +18,46 @@ class MainWindow(QtGui.QMainWindow):
         self.resize(800,600)
         self.setWindowTitle('DDS picker')
 
+        # Obspy.Stream for storing profile
+        self.St = None
+        # array used for "delete traces"
+        self.Mask = None
+        # array used for converting between km/s and deg/s
+        self.XOffset = None
+        # array used for plotting reduced time profile
+        self.YOffset = None
+        # array used for scale the amplitude of traces
+        self.Scale = None
+        # indicator the units of distance
+        self.IsKm = None
+        
+        # list of auxiliary lines for storing theoretical travel times
+        self.AuxiliaryLines = None
+               
+        # list for save arrival times picked
+        self.picks = None 
+        # handler for pick markers plot
+        self.pickmarkers = None
+        
+        self.initUI()
+    
+    def initUI(self):
         self.setUpMenuBar()
         
-        # Radio buttons for reduced time
-        ReducedVelocity6 = QtGui.QRadioButton("t-x/6")
-        ReducedVelocity8 = QtGui.QRadioButton("t-x/8")
-        ReducedVelocityNone = QtGui.QRadioButton("t")
-        ReducedVelocityNone.setChecked(True)
-        
-        # enclose all the radio button to make them exclusively
-        # i.e., only one radio button can be checked at one time
-        self.ReducedTimeButtonGroup = QtGui.QButtonGroup()
-        self.ReducedTimeButtonGroup.addButton(ReducedVelocity6)
-        self.ReducedTimeButtonGroup.addButton(ReducedVelocity8)
-        self.ReducedTimeButtonGroup.addButton(ReducedVelocityNone)
-        self.connect(self.ReducedTimeButtonGroup, QtCore.SIGNAL('buttonClicked(QAbstractButton*)'),
-                     self.rtPlot)
-                                                       
-        # button for clear picks
-        self.ClearButton = QtGui.QPushButton("Clear", self)
-        self.ClearButton.setGeometry(10, 10, 64, 35)
+        self.GroupBoxRTKm, self.LineEditRTKm = self.groupBoxReducedTimeKm()
+        self.GroupBoxRTDeg, self.LineEditRTDeg = self.groupBoxReducedTimeDeg()
+                                                               
+        # button for manipulate picks
+        self.SaveButton = QtGui.QPushButton('Save Picks', self)
+        self.ClearButton = QtGui.QPushButton("Clear Picks", self)
+#        self.ClearButton.setGeometry(10, 10, 64, 35)
+        self.connect(self.SaveButton, QtCore.SIGNAL('clicked()'),
+                     self.savePicks)
         self.connect(self.ClearButton, QtCore.SIGNAL('clicked()'),
                      self.clearPicks)
+        PicksButtons = QtGui.QVBoxLayout()
+        PicksButtons.addWidget(self.SaveButton)
+        PicksButtons.addWidget(self.ClearButton)
         
         # add matplotlib figure
         self.main_widget = QtGui.QWidget(self)
@@ -49,21 +67,13 @@ class MainWindow(QtGui.QMainWindow):
         
         # add navigation toolbar for zoom in/out and drag
         self.mpl_toolbar = NavigationToolbar(self.canvas, self.main_widget)
-
-           
-        # set layouts
-        vboxRT = QtGui.QVBoxLayout()
-        vboxRT.addWidget(ReducedVelocity6)
-        vboxRT.addWidget(ReducedVelocity8)
-        vboxRT.addWidget(ReducedVelocityNone) 
-        vboxRT.addStretch(1)
-        GroupBoxRT = QtGui.QGroupBox("Reduced time")
-        GroupBoxRT.setLayout(vboxRT)          
-           
+   
+            # set layouts
         hbox = QtGui.QHBoxLayout()
         hbox.addStretch(1)
-        hbox.addWidget(GroupBoxRT, stretch=10, alignment=QtCore.Qt.AlignCenter)
-        hbox.addWidget(self.ClearButton)
+        hbox.addWidget(self.GroupBoxRTKm, stretch=10, alignment=QtCore.Qt.AlignCenter)
+        hbox.addWidget(self.GroupBoxRTDeg, stretch=10, alignment=QtCore.Qt.AlignCenter)
+        hbox.addLayout(PicksButtons)
         
         vbox = QtGui.QVBoxLayout(self.main_widget)
         vbox.addLayout(hbox)
@@ -73,11 +83,11 @@ class MainWindow(QtGui.QMainWindow):
         self.main_widget.setFocus()
         self.setCentralWidget(self.main_widget)
         
-        # list for save arrival times picked
-        self.picks = None
-        self.pickmarkers = None
+        
         
     def setUpMenuBar(self):
+        """menubar
+        """
         # 'File' menu
         self.file_menu = QtGui.QMenu('&File', self)
         self.file_menu.addAction('&Quit', self.fileQuit,
@@ -91,6 +101,84 @@ class MainWindow(QtGui.QMainWindow):
 
         self.menuBar().addMenu(self.file_menu)
         self.menuBar().addMenu(self.help_menu)
+    
+    def groupBoxReducedTimeKm(self):
+        """Radio buttons for reduced time
+        """
+        ReducedVelocity6 = QtGui.QRadioButton("t-x/6")
+        ReducedVelocity8 = QtGui.QRadioButton("t-x/8")
+        ReducedVelocityNone = QtGui.QRadioButton("t")
+        ReducedVelocityArb = QtGui.QRadioButton("t-x/?(km/s)")
+        ReducedVelocityArbValue = QtGui.QLineEdit("6.0")
+        ReducedVelocityNone.setChecked(True)
+        
+        # enclose all the radio button to make them exclusively
+        # i.e., only one radio button can be checked at one time
+        self.ReducedTimeButtonGroupKm = QtGui.QButtonGroup()
+        self.ReducedTimeButtonGroupKm.addButton(ReducedVelocity6)
+        self.ReducedTimeButtonGroupKm.addButton(ReducedVelocity8)
+        self.ReducedTimeButtonGroupKm.addButton(ReducedVelocityNone)
+        self.ReducedTimeButtonGroupKm.addButton(ReducedVelocityArb)
+        self.connect(self.ReducedTimeButtonGroupKm, QtCore.SIGNAL('buttonClicked(QAbstractButton*)'),
+                     self.rtKmPlot)
+        self.connect(ReducedVelocityArbValue, QtCore.SIGNAL('returnPressed()'),
+                     self.rtKmPlot)
+        
+        vboxRT = QtGui.QVBoxLayout()
+        vboxRT.addWidget(ReducedVelocity6)
+        vboxRT.addWidget(ReducedVelocity8)
+        vboxRT.addWidget(ReducedVelocityNone) 
+        
+        hboxArb = QtGui.QHBoxLayout()
+        hboxArb.addWidget(ReducedVelocityArb)
+        hboxArb.addWidget(ReducedVelocityArbValue)
+        hboxArb.addStretch(1)
+        
+        vboxRT.addLayout(hboxArb)
+        vboxRT.addStretch(1)
+        GroupBoxRT = QtGui.QGroupBox("Reduced time (km/s)")
+        GroupBoxRT.setLayout(vboxRT)
+        
+        return GroupBoxRT, ReducedVelocityArbValue
+
+                     
+    def groupBoxReducedTimeDeg(self):
+        # DONE(xuyihe): ref to groupBoxReducedTimeKm
+    
+        # Radio buttons for reduced time
+#        ReducedVelocity = QtGui.QRadioButton("t-x/v(deg/s)")
+#        ReducedVelocityValue = QtGui.QTextEdit()
+#        ReducedVelocity = QtGui.QRadioButton("t-x/v(deg/s)")
+        ReducedVelocityNone = QtGui.QRadioButton("t")
+        ReducedVelocityNone.setChecked(True)
+        ReducedVelocityArb = QtGui.QRadioButton("t-x/?(deg/s)")
+        ReducedVelocityArbValue = QtGui.QLineEdit()
+        
+        # enclose all the radio button to make them exclusively
+        # i.e., only one radio button can be checked at one time
+        self.ReducedTimeButtonGroupDeg = QtGui.QButtonGroup()
+        self.ReducedTimeButtonGroupDeg.addButton(ReducedVelocityNone)
+        self.ReducedTimeButtonGroupDeg.addButton(ReducedVelocityArb)
+        self.connect(self.ReducedTimeButtonGroupDeg, QtCore.SIGNAL('buttonClicked(QAbstractButton*)'),
+                     self.rtDegPlot)
+        self.connect(ReducedVelocityArbValue, QtCore.SIGNAL('returnPressed()'),
+                     self.rtDegPlot)
+        
+        vboxRT = QtGui.QVBoxLayout()
+        vboxRT.addWidget(ReducedVelocityNone) 
+        
+        hboxArb = QtGui.QHBoxLayout()
+        hboxArb.addWidget(ReducedVelocityArb)
+        hboxArb.addWidget(ReducedVelocityArbValue)
+        hboxArb.addStretch(1)
+        
+        vboxRT.addLayout(hboxArb)
+        vboxRT.addStretch(1)
+        GroupBoxRT = QtGui.QGroupBox("Reduced time (deg/s)")
+        GroupBoxRT.setLayout(vboxRT)
+        
+        return GroupBoxRT, ReducedVelocityArbValue
+    
 
     def clickOnProfile(self, event):
         if event.inaxes is not None:
@@ -123,32 +211,79 @@ class MainWindow(QtGui.QMainWindow):
                 self.pickmarkers.set_ydata(picks[:,1])
             self.canvas.draw() 
     
+    def savePicks(self):
+        if self.picks is None:
+            pass
+        else:
+            filename = QtGui.QFileDialog.getSaveFileName(self, 'Save as ...',
+                                                         '..')
+            np.savetxt(filename, self.picks, fmt='%.6e')
+            
+    
     def clearPicks(self):
         self.picks = None
         self.updatePicks()
         
-    def rtPlot(self):
-        """Plot profile with reduced time
+    def setReducedVelocity(self, rv, IsKms=True):
+        if IsKms:
+            self.reducedVelocity = rv
+        else:
+            self.reducedVelocity = rv * np.pi/180.0 * 6371.0
+        self.updateProfile()
+        
+    def rtKmPlot(self):
+        """Plot profile with reduced velocity with units of km/s
         """
-        #TODO(xuyihe): take similar parts of rtPlot and loadFromFolder to a
+        #DONE(xuyihe): take similar parts of rtPlot and loadFromFolder to a
         # individual method, to update profile
         # set reduced velocity from radio button checked
-        id = self.ReducedTimeButtonGroup.checkedId()
-        if id == -2:
-            reducedV = 6.0
-        elif id == -3:
-            reducedV = 8.0
-        elif id == -4:
-            reducedV = np.inf
-        else:
-            reducedV = np.inf
+        id = self.ReducedTimeButtonGroupKm.checkedId()
+        ArbValueString = self.LineEditRTKm.text()
+        try:
+            ArbValue = float(ArbValueString)
+        except ValueError:
+            ArbValue = np.inf
         
+        id2rv = {-2:6.0, -3:8.0, -4:np.inf, -5:ArbValue}
+        self.setReducedVelocity(id2rv[id], IsKms=True)
+        
+#    def rtKmPlot2(self):
+#        """Plot profile with arbitary reduced velocity
+#        """
+##        print 'rtPlot2'
+#        rv = self.LineEditRTKm.text()
+##        print rv
+#        id = self.ReducedTimeButtonGroupKm.checkedId()
+#        if id == -5:
+#            self.reducedVelocity = float(rv)
+#        self.updateProfile()
+        
+    def rtDegPlot(self):
+        """Plot profile with pre-defined reduced velocity with units of deg/s
+        """
+        id = self.ReducedTimeButtonGroupDeg.checkedId()
+        ArbValueString = self.LineEditRTDeg.text()
+        try:
+            ArbValue = float(ArbValueString)
+        except ValueError:
+            ArbValue = np.inf
+        
+        id2rv = {-2:np.inf, -3:ArbValue}
+        self.setReducedVelocity(id2rv[id], IsKms=False)
+    
+#    def rtDegPlot2(self):
+#        """Plot profile with arbitary reduced velocity with units of deg/s
+#        """
+#        pass
+        
+        
+    def updateProfile(self):
         # clear the axes and plot, with x_offset, y_offset and scale
         self.canvas.axes.cla()
         for tr in self.st:
             scale = 1.0/np.max(tr.data)
             x_offset = tr.stats.sac['dist']
-            y_offset = -x_offset/reducedV
+            y_offset = -x_offset/self.reducedVelocity
             self.canvas.axes.plot(tr.data * scale + x_offset, 
                                   tr.times() + y_offset , 'k')
         self.canvas.axes.set_xlim(-1,151)
