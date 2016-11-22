@@ -95,7 +95,8 @@ class MainWindow(QtGui.QMainWindow):
                 QtCore.Qt.CTRL + QtCore.Qt.Key_Q)
         self.file_menu.addAction('&Load from Folder', self.loadFromFolder,
                 QtCore.Qt.CTRL + QtCore.Qt.Key_L)
-        self.file_menu.addAction('Load from &File List', self.loadFromFileList,
+        self.file_menu.addAction('&Import from File List', self.loadFromFileList,
+                QtCore.Qt.CTRL + QtCore.Qt.Key_I,
                 )
                 
         # 'View' menu
@@ -371,8 +372,14 @@ class MainWindow(QtGui.QMainWindow):
         self.canvas.draw()
         
     def setProfileBoundary(self):
-        pass
-    
+        dialog = MapMarginDialog(self)
+        dialog.exec_()
+        
+        limit = dialog.getLimit()
+        self.canvas.axes.set_xlim(limit[0], limit[1])
+        self.canvas.axes.set_ylim(limit[2], limit[3])
+        self.canvas.draw()
+
     def reduceTimeKms(self):
         pass
     
@@ -387,6 +394,73 @@ Laboratory of Seismic Observation and Geophysical Imaging
 
 The very first version of arrival time picker for active sources profile."""
                 )
+
+# Custom-designed dialog for setting map margins
+class MapMarginDialog(QtGui.QDialog):
+    def __init__(self, parent=None):
+        QtGui.QDialog.__init__(self, parent)
+                
+        self.XMinLabel = QtGui.QLabel("xmin")
+        self.XMaxLabel = QtGui.QLabel("xmax")
+        self.YMinLabel = QtGui.QLabel("ymin")
+        self.YMaxLabel = QtGui.QLabel("ymax")
+     
+        self.XMinText = QtGui.QDoubleSpinBox()
+        self.XMaxText = QtGui.QDoubleSpinBox()
+        self.YMinText = QtGui.QDoubleSpinBox()
+        self.YMaxText = QtGui.QDoubleSpinBox()
+        
+        self.XMinText.setMaximum(1e6)
+        self.XMinText.setMinimum(-1e6)
+        self.XMaxText.setMaximum(1e6)
+        self.XMaxText.setMinimum(-1e6)
+        self.YMinText.setMaximum(1e6)
+        self.YMinText.setMinimum(-1e6)
+        self.YMaxText.setMaximum(1e6)
+        self.YMaxText.setMinimum(-1e6)
+        
+        xlim = self.parent().canvas.axes.get_xlim()
+        ylim = self.parent().canvas.axes.get_ylim()
+        
+        self.XMinText.setValue(xlim[0])
+        self.XMaxText.setValue(xlim[1])
+        self.YMinText.setValue(ylim[0])
+        self.YMaxText.setValue(ylim[1])
+        
+        self.OKButton = QtGui.QPushButton("OK")
+        self.CancelButton = QtGui.QPushButton("Cancel")
+        
+        self.connect(self.OKButton, QtCore.SIGNAL('clicked()'),
+                     self.accept)       
+        self.connect(self.CancelButton, QtCore.SIGNAL('clicked()'),
+                     self.reject)
+        
+        grid = QtGui.QGridLayout()
+        grid.setSpacing(10)
+        
+        grid.addWidget(self.XMinLabel, 1, 0)
+        grid.addWidget(self.XMaxLabel, 1, 1)
+        grid.addWidget(self.XMinText, 2, 0)
+        grid.addWidget(self.XMaxText, 2, 1)
+        grid.addWidget(self.YMinLabel, 3, 0)
+        grid.addWidget(self.YMaxLabel, 3, 1)
+        grid.addWidget(self.YMinText, 4, 0)
+        grid.addWidget(self.YMaxText, 4, 1)
+        
+        grid.addWidget(self.OKButton, 5, 0)
+        grid.addWidget(self.CancelButton, 5, 1)
+         
+        self.setLayout(grid)
+        
+        self.setWindowTitle("Map Margins")  
+    
+    def getLimit(self):
+        xmin = self.XMinText.value()
+        xmax = self.XMaxText.value()
+        ymin = self.YMinText.value()
+        ymax = self.YMaxText.value()
+        
+        return (xmin, xmax, ymin, ymax)
 
 
 # class for embedding matplotlib figure into PyQt4
