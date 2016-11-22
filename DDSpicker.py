@@ -43,6 +43,7 @@ class MainWindow(QtGui.QMainWindow):
     
     def initUI(self):
         self.setUpMenuBar()
+        self.setUpToolBar()
         
         self.GroupBoxRTKm, self.LineEditRTKm = self.groupBoxReducedTimeKm()
         self.GroupBoxRTDeg, self.LineEditRTDeg = self.groupBoxReducedTimeDeg()
@@ -94,13 +95,34 @@ class MainWindow(QtGui.QMainWindow):
                 QtCore.Qt.CTRL + QtCore.Qt.Key_Q)
         self.file_menu.addAction('&Load from Folder', self.loadFromFolder,
                 QtCore.Qt.CTRL + QtCore.Qt.Key_L)
+        self.file_menu.addAction('Load from &File List', self.loadFromFileList,
+                )
+                
+        # 'View' menu
+        self.view_menu = QtGui.QMenu('&View', self)
+        self.view_menu.addAction('Set Profile &Boundary',
+                                 self.setProfileBoundary,
+                                 QtCore.Qt.CTRL+QtCore.Qt.Key_B)
+        self.view_menu.addAction('Reduce Time (km/s)',
+                                 self.reduceTimeKms,
+                                 )
+        self.view_menu.addAction('Reduce Time (deg/s)',
+                                 self.reduceTimeDegs,
+                                 )
+        
+        
 
         # 'Help' menu
         self.help_menu = QtGui.QMenu('&Help', self)
         self.help_menu.addAction('&About', self.about)
 
         self.menuBar().addMenu(self.file_menu)
+        self.menuBar().addMenu(self.view_menu)
         self.menuBar().addMenu(self.help_menu)
+        
+    def setUpToolBar(self):
+        pass
+        
     
     def groupBoxReducedTimeKm(self):
         """Radio buttons for reduced time
@@ -319,7 +341,43 @@ class MainWindow(QtGui.QMainWindow):
         self.canvas.axes.set_xlabel('Distance (km)')
         self.canvas.axes.set_ylabel('Time (s)')
         self.canvas.draw()
-
+    
+    def loadFromFileList(self):
+        self.canvas.axes.cla()
+        
+        FileListName = QtGui.QFileDialog.getOpenFileName(self, 'Select a List File',
+                                                         '../demo_data')
+        if FileListName is None:
+            return
+        
+        with open(FileListName, 'rU') as fl:
+            fs = map(lambda x: x.strip(), fl.readlines())
+            for i, f in enumerate(fs):
+                if i == 0:
+                    st = read(f)
+                else:
+                    st += read(f)
+        
+        self.st = st
+        # plot it with offset, scale
+        for tr in self.st:
+            scale = 1.0/np.max(tr.data)
+            offset = tr.stats.sac['dist']
+            self.canvas.axes.plot(tr.data * scale + offset, tr.times() , 'k')
+        self.canvas.axes.set_xlim(-1,151)
+        self.canvas.axes.set_ylim(0,90)
+        self.canvas.axes.set_xlabel('Distance (km)')
+        self.canvas.axes.set_ylabel('Time (s)')
+        self.canvas.draw()
+        
+    def setProfileBoundary(self):
+        pass
+    
+    def reduceTimeKms(self):
+        pass
+    
+    def reduceTimeDegs(self):
+        pass
 
     def about(self):
         QtGui.QMessageBox.about(self, "About",
