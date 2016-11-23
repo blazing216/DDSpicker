@@ -19,17 +19,17 @@ class MainWindow(QtGui.QMainWindow):
         self.setWindowTitle('DDS picker')
 
         # Obspy.Stream for storing profile
-        self.St = None
+        self.st = None
         # array used for "delete traces"
-        self.Mask = None
+        self.mask = None
         # array used for converting between km/s and deg/s
-        self.XOffset = None
+        self.x_offset = None
         # array used for plotting reduced time profile
-        self.YOffset = None
+        self.y_offset = None
         # array used for scale the amplitude of traces
-        self.Scale = None
+        self.scale = None
         # indicator the units of distance
-        self.IsKm = None
+        self.iskm = None
         
         # list of auxiliary lines for storing theoretical travel times
         self.AuxiliaryLines = None
@@ -69,7 +69,7 @@ class MainWindow(QtGui.QMainWindow):
         # add navigation toolbar for zoom in/out and drag
         self.mpl_toolbar = NavigationToolbar(self.canvas, self.main_widget)
    
-            # set layouts
+        # set layouts
         hbox = QtGui.QHBoxLayout()
         hbox.addStretch(1)
         hbox.addWidget(self.GroupBoxRTKm, stretch=10, alignment=QtCore.Qt.AlignCenter)
@@ -213,7 +213,7 @@ class MainWindow(QtGui.QMainWindow):
                 self.picks.append(points)
                 self.updatePicks()
     
-    def updatePicks(self):
+    def updatePicks(self, refresh=False):
         if self.picks is None:
             # no picks, erase pick markers
             try:
@@ -225,13 +225,27 @@ class MainWindow(QtGui.QMainWindow):
             self.pickmarkers = None
         else:
             # otherwise, replot picks
+            #print self.pickmarkers
             picks = np.array(self.picks)
-            if self.pickmarkers is None:
-                self.pickmarkers, = self.canvas.axes.plot(picks[:,0], picks[:,1], 'r+',
-                                                 markersize=8, mew=1)  
+            sort_index = np.argsort(self.x_offset)
+            picks_y_offset = picks[:,1] + np.interp(picks[:,0], 
+                        self.x_offset[sort_index],
+                        self.y_offset[sort_index])
+            if self.pickmarkers is None or refresh is True:
+                self.pickmarkers, = self.canvas.axes.plot(
+                    picks[:,0], 
+                    picks_y_offset,
+                    'r_',
+                    markersize=8, mew=1)  
+                #print picks[:,0]
+                #print picks[:,1] + np.interp(picks[:,0], self.x_offset, self.y_offset)
+                #print picks[:,1]
+                #print np.interp(picks[:,0], self.x_offset, self.y_offset)
+                #print self.y_offset
+                #print self.x_offset
             else:
                 self.pickmarkers.set_xdata(picks[:,0])
-                self.pickmarkers.set_ydata(picks[:,1])
+                self.pickmarkers.set_ydata(picks_y_offset)
             self.canvas.draw() 
     
     def savePicks(self):
@@ -239,7 +253,7 @@ class MainWindow(QtGui.QMainWindow):
             pass
         else:
             filename = QtGui.QFileDialog.getSaveFileName(self, 'Save as ...',
-                                                         '..')
+                                                         '.')
             np.savetxt(filename, self.picks, fmt='%.6e')
             
     
@@ -252,7 +266,10 @@ class MainWindow(QtGui.QMainWindow):
             self.reducedVelocity = rv
         else:
             self.reducedVelocity = rv * np.pi/180.0 * 6371.0
+        self.y_offset = -self.x_offset/self.reducedVelocity
+
         self.updateProfile()
+        self.updatePicks(refresh=True)
         
     def rtKmPlot(self):
         """Plot profile with reduced velocity with units of km/s
@@ -301,16 +318,27 @@ class MainWindow(QtGui.QMainWindow):
         
         
     def updateProfile(self):
-        # clear the axes and plot, with x_offset, y_offset and scale
+        """clear the axes and plot, with x_offset, y_offset and scale
+        """
+        
+        if self.st is None:
+            return
+
+        scale = self.scale
+        x_offset = self.x_offset
+        y_offset = self.y_offset
+
+        # clear the axes
         self.canvas.axes.cla()
-        for tr in self.st:
-            scale = 1.0/np.max(tr.data)
-            x_offset = tr.stats.sac['dist']
-            y_offset = -x_offset/self.reducedVelocity
+        for tr, scale, x_offset, y_offset in zip(
+                self.st, self.scale, self.x_offset, self.y_offset):
+            #scale = 1.0/np.max(tr.data)
+            #x_offset = tr.stats.sac['dist']
+            #y_offset = -x_offset/self.reducedVelocity
             self.canvas.axes.plot(tr.data * scale + x_offset, 
                                   tr.times() + y_offset , 'k')
-        self.canvas.axes.set_xlim(-1,151)
-        self.canvas.axes.set_ylim(0,90)
+        self.canvas.axes.set_xlim(self.xlim)
+        self.canvas.axes.set_ylim(self.ylim)
         self.canvas.axes.set_xlabel('Distance (km)')
         self.canvas.axes.set_ylabel('Time (s)')
         self.canvas.draw()
@@ -322,35 +350,53 @@ class MainWindow(QtGui.QMainWindow):
         self.fileQuit()
 
     def loadFromFolder(self):
-        # clear the axes for new plot
-        self.canvas.axes.cla()
-        
         # read all sac files in a folder
         folder_name = QtGui.QFileDialog.getExistingDirectory(self, 'Select a Folder',
-                                                             '../demo_data')
-        if folder_name is None:
+                                                             '.')
+        if len(folder_name) == 0:
             return
+
         self.st = read(os.path.join(str(folder_name), '*.BHZ*.sac'))
         
-        # plot it with offset, scale
+        # clear the axes for new plot
+        #self.canvas.axes.cla()
+        
+        # set offset, scale
+        scale = []
+        x_offset = []
+        y_offset = []
         for tr in self.st:
-            scale = 1.0/np.max(tr.data)
-            offset = tr.stats.sac['dist']
-            self.canvas.axes.plot(tr.data * scale + offset, tr.times() , 'k')
-        self.canvas.axes.set_xlim(-1,151)
-        self.canvas.axes.set_ylim(0,90)
-        self.canvas.axes.set_xlabel('Distance (km)')
-        self.canvas.axes.set_ylabel('Time (s)')
-        self.canvas.draw()
+            scale.append(1.0/np.max(tr.data))
+            x_offset.append(tr.stats.sac['dist'])
+            #self.canvas.axes.plot(tr.data * scale + offset, tr.times() , 'k')
+
+        self.scale = np.array(scale)
+        self.x_offset = np.array(x_offset)
+        self.y_offset = np.zeros(self.x_offset.shape)
+
+        self.xlim = (self.x_offset.min()-5, self.x_offset.max()+5)
+        self.ylim = (0, 90)
+        #self.canvas.axes.set_xlim(-1,151)
+        #self.canvas.axes.set_ylim(0,90)
+        #self.canvas.axes.set_xlabel('Distance (km)')
+        #self.canvas.axes.set_ylabel('Time (s)')
+        #self.canvas.draw()
+
+        # update the profile
+        self.updateProfile()
     
     def loadFromFileList(self):
-        self.canvas.axes.cla()
         
-        print os.getcwd()
+        #print os.getcwd()
 
         FileListName = QtGui.QFileDialog.getOpenFileName(self, 'Select a List File',
-                                                         '../demo_data')
-        if FileListName is None:
+                                                         '.',
+                                                         "List files(*.lst)")
+        #print FileListName
+        #print str(FileListName)
+        #print len(str(FileListName))
+        #print len(FileListName)
+        if len(FileListName) == 0:
             return
         
         with open(FileListName, 'rU') as fl:
@@ -362,16 +408,36 @@ class MainWindow(QtGui.QMainWindow):
                     st += read(f)
         
         self.st = st
-        # plot it with offset, scale
+
+        # clear the canvas
+        #self.canvas.axes.cla()
+
+        # set offset, scale
+        scale = []
+        x_offset = []
+        y_offset = []
         for tr in self.st:
-            scale = 1.0/np.max(tr.data)
-            offset = tr.stats.sac['dist']
-            self.canvas.axes.plot(tr.data * scale + offset, tr.times() , 'k')
-        self.canvas.axes.set_xlim(-1,151)
-        self.canvas.axes.set_ylim(0,90)
-        self.canvas.axes.set_xlabel('Distance (km)')
-        self.canvas.axes.set_ylabel('Time (s)')
-        self.canvas.draw()
+            scale.append(1.0/np.max(tr.data))
+            x_offset.append(tr.stats.sac['dist'])
+            #self.canvas.axes.plot(tr.data * scale + offset, tr.times() , 'k')
+
+        self.scale = np.array(scale)
+        self.x_offset = np.array(x_offset)
+        self.y_offset = np.zeros(self.x_offset.shape)
+
+        self.xlim = (self.x_offset.min()-5, self.x_offset.max()+5)
+        self.ylim = (0, 90)
+        #for tr in self.st:
+        #    scale = 1.0/np.max(tr.data)
+        #    offset = tr.stats.sac['dist']
+        #    self.canvas.axes.plot(tr.data * scale + offset, tr.times() , 'k')
+        #self.canvas.axes.set_xlim(-1,151)
+        #self.canvas.axes.set_ylim(0,90)
+        #self.canvas.axes.set_xlabel('Distance (km)')
+        #self.canvas.axes.set_ylabel('Time (s)')
+        #self.canvas.draw()
+
+        self.updateProfile()
         
     def setProfileBoundary(self):
         dialog = MapMarginDialog(self)
