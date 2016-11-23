@@ -330,7 +330,7 @@ class MainWindow(QtGui.QMainWindow):
                                                              '../demo_data')
         if folder_name is None:
             return
-        self.st = read(os.path.join(folder_name, '*.BHZ*.sac'))
+        self.st = read(os.path.join(str(folder_name), '*.BHZ*.sac'))
         
         # plot it with offset, scale
         for tr in self.st:
@@ -346,6 +346,8 @@ class MainWindow(QtGui.QMainWindow):
     def loadFromFileList(self):
         self.canvas.axes.cla()
         
+        print os.getcwd()
+
         FileListName = QtGui.QFileDialog.getOpenFileName(self, 'Select a List File',
                                                          '../demo_data')
         if FileListName is None:
