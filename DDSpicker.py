@@ -356,7 +356,7 @@ class MainWindow(QtGui.QMainWindow):
         if len(folder_name) == 0:
             return
 
-        self.st = read(os.path.join(str(folder_name), '*.BHZ*.sac'))
+        self.st = read(os.path.join(str(folder_name), '*.sac'))
         
         # clear the axes for new plot
         #self.canvas.axes.cla()
