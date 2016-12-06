@@ -28,54 +28,65 @@ class MainWindow(QtGui.QMainWindow):
         self.y_offset = None
         # array used for scale the amplitude of traces
         self.scale = None
+        # scaling factor multiple self.scale
+        self.scale_factor = None
         # indicator the units of distance
         self.iskm = None
-        
+
         # list of auxiliary lines for storing theoretical travel times
         self.AuxiliaryLines = None
-               
+
+        # map limits
+        self.limit = None
+
         # list for save arrival times picked
         self.picks = None 
+        # mask array for picks
+        self.pick_mask = None
         # handler for pick markers plot
         self.pickmarkers = None
-        
+
         self.initUI()
-    
+
     def initUI(self):
         self.setUpMenuBar()
         self.setUpToolBar()
-        
+
         self.GroupBoxRTKm, self.LineEditRTKm = self.groupBoxReducedTimeKm()
         self.GroupBoxRTDeg, self.LineEditRTDeg = self.groupBoxReducedTimeDeg()
-                                                               
+
         # button for manipulate picks
+        self.LoadButton = QtGui.QPushButton('Load Picks', self)
         self.SaveButton = QtGui.QPushButton('Save Picks', self)
         self.ClearButton = QtGui.QPushButton("Clear Picks", self)
 #        self.ClearButton.setGeometry(10, 10, 64, 35)
+        self.connect(self.LoadButton, QtCore.SIGNAL('clicked()'),
+                     self.loadPicks)
         self.connect(self.SaveButton, QtCore.SIGNAL('clicked()'),
                      self.savePicks)
         self.connect(self.ClearButton, QtCore.SIGNAL('clicked()'),
                      self.clearPicks)
         PicksButtons = QtGui.QVBoxLayout()
+        PicksButtons.addWidget(self.LoadButton)
         PicksButtons.addWidget(self.SaveButton)
         PicksButtons.addWidget(self.ClearButton)
-        
+
         # add matplotlib figure
         self.main_widget = QtGui.QWidget(self)
-        
+
         self.canvas = ProfileCanvas(self.main_widget)
         self.canvas.mpl_connect('button_press_event', self.clickOnProfile)
-        
+
         # add navigation toolbar for zoom in/out and drag
         self.mpl_toolbar = NavigationToolbar(self.canvas, self.main_widget)
-   
+
         # set layouts
         hbox = QtGui.QHBoxLayout()
         hbox.addStretch(1)
         hbox.addWidget(self.GroupBoxRTKm, stretch=10, alignment=QtCore.Qt.AlignCenter)
         hbox.addWidget(self.GroupBoxRTDeg, stretch=10, alignment=QtCore.Qt.AlignCenter)
         hbox.addLayout(PicksButtons)
-        
+
         vbox = QtGui.QVBoxLayout(self.main_widget)
         vbox.addLayout(hbox)
         vbox.addWidget(self.canvas)
@@ -83,9 +94,7 @@ class MainWindow(QtGui.QMainWindow):
 
         self.main_widget.setFocus()
         self.setCentralWidget(self.main_widget)
-        
-        
-        
+
     def setUpMenuBar(self):
         """menubar
         """
@@ -98,7 +107,7 @@ class MainWindow(QtGui.QMainWindow):
         self.file_menu.addAction('&Import from File List', self.loadFromFileList,
                 QtCore.Qt.CTRL + QtCore.Qt.Key_I,
                 )
-                
+
         # 'View' menu
         self.view_menu = QtGui.QMenu('&View', self)
         self.view_menu.addAction('Set Profile &Boundary',
@@ -110,8 +119,9 @@ class MainWindow(QtGui.QMainWindow):
         self.view_menu.addAction('Reduce Time (deg/s)',
                                  self.reduceTimeDegs,
                                  )
-        
-        
+        self.view_menu.addAction('Scale',
+                                 self.changeScale,
+                                )
 
         # 'Help' menu
         self.help_menu = QtGui.QMenu('&Help', self)
@@ -120,11 +130,10 @@ class MainWindow(QtGui.QMainWindow):
         self.menuBar().addMenu(self.file_menu)
         self.menuBar().addMenu(self.view_menu)
         self.menuBar().addMenu(self.help_menu)
-        
+
     def setUpToolBar(self):
         pass
-        
-    
+
     def groupBoxReducedTimeKm(self):
         """Radio buttons for reduced time
         """
@@ -164,7 +173,6 @@ class MainWindow(QtGui.QMainWindow):
         
         return GroupBoxRT, ReducedVelocityArbValue
 
-                     
     def groupBoxReducedTimeDeg(self):
         # DONE(xuyihe): ref to groupBoxReducedTimeKm
     
@@ -201,20 +209,37 @@ class MainWindow(QtGui.QMainWindow):
         GroupBoxRT.setLayout(vboxRT)
         
         return GroupBoxRT, ReducedVelocityArbValue
-    
 
     def clickOnProfile(self, event):
         if event.inaxes is not None:
-            points = (event.xdata, event.ydata)
-            if self.picks is None:
-                self.picks = [points]
-                self.updatePicks()
-            else:
-                self.picks.append(points)
-                self.updatePicks()
-    
+            points = np.array([event.xdata, event.ydata])
+            sort_index = np.argsort(self.x_offset)
+            index = self._find_nearest_trace(points[0])
+            points[0] = self.x_offset[index]
+            points[1] = points[1] - self.y_offset[index]
+
+            if event.button == 1:
+                if self.picks is None:
+                    self.picks[index,:] = points
+                    self.pick_mask[index] = False
+                    self.updatePicks()
+                else:
+                    #print self.picks
+                    self.picks[index,:] = points
+                    self.pick_mask[index] = False
+                    self.updatePicks()
+            elif event.button == 3:
+                if self.picks is not None:
+                    self.pick_mask[index] = True
+                    self.updatePicks()
+
+    def _find_nearest_trace(self, x):
+        dx = np.abs(self.x_offset - x)
+        index = np.argmin(dx)
+        return index
+
     def updatePicks(self, refresh=False):
-        if self.picks is None:
+        if np.all(self.pick_mask) is True:
             # no picks, erase pick markers
             try:
                 self.pickmarkers.set_xdata([])
@@ -227,16 +252,20 @@ class MainWindow(QtGui.QMainWindow):
             # otherwise, replot picks
             #print self.pickmarkers
             picks = np.array(self.picks)
-            sort_index = np.argsort(self.x_offset)
-            picks_y_offset = picks[:,1] + np.interp(picks[:,0], 
-                        self.x_offset[sort_index],
-                        self.y_offset[sort_index])
+            #sort_index = np.argsort(self.x_offset)
+            #picks_y_offset = picks[:,1] + np.interp(picks[:,0],
+            #            self.x_offset[sort_index],
+            #            self.y_offset[sort_index])
+            picks_y_offset = picks[:,1] + self.y_offset
             if self.pickmarkers is None or refresh is True:
+            # refresh is used by 'self.setReducedVelocity' after 
+            # self.updateProfile() to redraw picks on the redrawed
+            # profile
                 self.pickmarkers, = self.canvas.axes.plot(
-                    picks[:,0], 
-                    picks_y_offset,
+                    picks[~self.pick_mask,0],
+                    picks_y_offset[~self.pick_mask],
                     'r_',
-                    markersize=8, mew=1)  
+                    markersize=10, mew=4)
                 #print picks[:,0]
                 #print picks[:,1] + np.interp(picks[:,0], self.x_offset, self.y_offset)
                 #print picks[:,1]
@@ -244,23 +273,37 @@ class MainWindow(QtGui.QMainWindow):
                 #print self.y_offset
                 #print self.x_offset
             else:
-                self.pickmarkers.set_xdata(picks[:,0])
-                self.pickmarkers.set_ydata(picks_y_offset)
-            self.canvas.draw() 
-    
+                self.pickmarkers.set_xdata(picks[~self.pick_mask,0])
+                self.pickmarkers.set_ydata(picks_y_offset[~self.pick_mask])
+            self.canvas.draw()
+
+    def loadPicks(self):
+        pickFileName = QtGui.QFileDialog.getOpenFileName(
+            self, 'select a Pick file', '.')
+
+        if len(pickFileName) == 0:
+            return
+
+        pickFileName = str(pickFileName)
+        self.picks = np.loadtxt(pickFileName) 
+        picks_index = map(lambda x:self._find_nearest_trace(x), 
+                          self.picks[:,0])
+        self.pick_mask[picks_index] = False
+        self.updatePicks()
+
     def savePicks(self):
         if self.picks is None:
             pass
         else:
             filename = QtGui.QFileDialog.getSaveFileName(self, 'Save as ...',
                                                          '.')
-            np.savetxt(filename, self.picks, fmt='%.6e')
-            
-    
+            filename = str(filename)
+            np.savetxt(str(filename), self.picks, fmt='%.6e')
+
     def clearPicks(self):
-        self.picks = None
+        self.pick_mask = np.ones(self.pick_mask.shape, dtype=bool)
         self.updatePicks()
-        
+
     def setReducedVelocity(self, rv, IsKms=True):
         if IsKms:
             self.reducedVelocity = rv
@@ -270,7 +313,7 @@ class MainWindow(QtGui.QMainWindow):
 
         self.updateProfile()
         self.updatePicks(refresh=True)
-        
+
     def rtKmPlot(self):
         """Plot profile with reduced velocity with units of km/s
         """
@@ -286,7 +329,7 @@ class MainWindow(QtGui.QMainWindow):
         
         id2rv = {-2:6.0, -3:8.0, -4:np.inf, -5:ArbValue}
         self.setReducedVelocity(id2rv[id], IsKms=True)
-        
+
 #    def rtKmPlot2(self):
 #        """Plot profile with arbitary reduced velocity
 #        """
@@ -315,12 +358,12 @@ class MainWindow(QtGui.QMainWindow):
 #        """Plot profile with arbitary reduced velocity with units of deg/s
 #        """
 #        pass
-        
-        
+
+
     def updateProfile(self):
         """clear the axes and plot, with x_offset, y_offset and scale
         """
-        
+
         if self.st is None:
             return
 
@@ -335,13 +378,22 @@ class MainWindow(QtGui.QMainWindow):
             #scale = 1.0/np.max(tr.data)
             #x_offset = tr.stats.sac['dist']
             #y_offset = -x_offset/self.reducedVelocity
-            self.canvas.axes.plot(tr.data * scale + x_offset, 
-                                  tr.times() + y_offset , 'k')
+            self.canvas.axes.plot(
+                tr.data*scale*self.scale_factor + x_offset,
+                tr.times() + y_offset , 'k')
         self.canvas.axes.set_xlim(self.xlim)
         self.canvas.axes.set_ylim(self.ylim)
         self.canvas.axes.set_xlabel('Distance (km)')
         self.canvas.axes.set_ylabel('Time (s)')
         self.canvas.draw()
+
+    def changeScale(self):
+        scale, ok = QtGui.QInputDialog.getDouble(
+            self, 'Set Scale', 'set scale', 1.0, decimals=0.1)
+        if ok:
+            self.scale_factor = scale
+            self.updateProfile()
+            self.updatePicks(refresh=True)
 
     def fileQuit(self):
         self.close()
@@ -357,10 +409,10 @@ class MainWindow(QtGui.QMainWindow):
             return
 
         self.st = read(os.path.join(str(folder_name), '*.sac'))
-        
+
         # clear the axes for new plot
         #self.canvas.axes.cla()
-        
+
         # set offset, scale
         scale = []
         x_offset = []
@@ -371,11 +423,15 @@ class MainWindow(QtGui.QMainWindow):
             #self.canvas.axes.plot(tr.data * scale + offset, tr.times() , 'k')
 
         self.scale = np.array(scale)
+        self.scale_factor = 1.0
         self.x_offset = np.array(x_offset)
         self.y_offset = np.zeros(self.x_offset.shape)
 
-        self.xlim = (self.x_offset.min()-5, self.x_offset.max()+5)
-        self.ylim = (0, 90)
+        self.picks = np.zeros((len(self.x_offset), 2))
+        self.pick_mask = np.ones(self.x_offset.shape, dtype=bool)
+
+        self.xlim = [self.x_offset.min()-5, self.x_offset.max()+5]
+        self.ylim = [0, 90]
         #self.canvas.axes.set_xlim(-1,151)
         #self.canvas.axes.set_ylim(0,90)
         #self.canvas.axes.set_xlabel('Distance (km)')
@@ -384,22 +440,22 @@ class MainWindow(QtGui.QMainWindow):
 
         # update the profile
         self.updateProfile()
-    
+
     def loadFromFileList(self):
         
         #print os.getcwd()
 
-        FileListName = QtGui.QFileDialog.getOpenFileName(self, 'Select a List File',
+        filelistname = QtGui.QFileDialog.getOpenFileName(self, 'select a list file',
                                                          '.',
-                                                         "List files(*.lst)")
-        #print FileListName
-        #print str(FileListName)
-        #print len(str(FileListName))
-        #print len(FileListName)
-        if len(FileListName) == 0:
+                                                         "list files(*.lst)")
+        #print filelistname
+        #print str(filelistname)
+        #print len(str(filelistname))
+        #print len(filelistname)
+        if len(filelistname) == 0:
             return
         
-        with open(FileListName, 'rU') as fl:
+        with open(filelistname, 'ru') as fl:
             fs = map(lambda x: x.strip(), fl.readlines())
             for i, f in enumerate(fs):
                 if i == 0:
@@ -422,11 +478,15 @@ class MainWindow(QtGui.QMainWindow):
             #self.canvas.axes.plot(tr.data * scale + offset, tr.times() , 'k')
 
         self.scale = np.array(scale)
+        self.scale_factor = 1.0
         self.x_offset = np.array(x_offset)
         self.y_offset = np.zeros(self.x_offset.shape)
 
-        self.xlim = (self.x_offset.min()-5, self.x_offset.max()+5)
-        self.ylim = (0, 90)
+        self.picks = np.zeros((len(self.x_offset), 2))
+        self.pick_mask = np.ones(self.x_offset.shape, dtype=bool)
+
+        self.xlim = [self.x_offset.min()-5, self.x_offset.max()+5]
+        self.ylim = [0, 90]
         #for tr in self.st:
         #    scale = 1.0/np.max(tr.data)
         #    offset = tr.stats.sac['dist']
@@ -438,19 +498,24 @@ class MainWindow(QtGui.QMainWindow):
         #self.canvas.draw()
 
         self.updateProfile()
-        
+
     def setProfileBoundary(self):
         dialog = MapMarginDialog(self)
         dialog.exec_()
-        
+
         limit = dialog.getLimit()
-        self.canvas.axes.set_xlim(limit[0], limit[1])
-        self.canvas.axes.set_ylim(limit[2], limit[3])
+        self.xlim = limit[:2]
+        self.ylim = limit[2:]
+        self.updateLimit()
+    
+    def updateLimit(self):
+        self.canvas.axes.set_xlim(self.xlim)
+        self.canvas.axes.set_ylim(self.ylim)
         self.canvas.draw()
 
     def reduceTimeKms(self):
         pass
-    
+
     def reduceTimeDegs(self):
         pass
 
